@@ -5,13 +5,14 @@ set -o nounset
 set -o xtrace
 
 ROOT=$(cd $(dirname ${BASH_SOURCE[0]}) && pwd -P)
-IMAGE_FILE=${IMAGE_FILE:-"tkestack.io/gaia/vcuda:latest"}
+IMAGE_FILE=${IMAGE_FILE:-"vcuda:latest"}
 
 function cleanup() {
-    rm -rf ${ROOT}/cuda-control.tar
+  rm -rf ${ROOT}/build
 }
 
 trap cleanup EXIT SIGTERM SIGINT
+
 
 function build_img() {
     readonly local commit=$(git log --oneline | wc -l | sed -e 's,^[ \t]*,,')
@@ -19,9 +20,7 @@ function build_img() {
 
     rm -rf ${ROOT}/build
     mkdir ${ROOT}/build
-    git archive -o ${ROOT}/build/cuda-control.tar --format=tar --prefix=cuda-control/ HEAD
-    cp ${ROOT}/vcuda.spec ${ROOT}/build
-    cp ${ROOT}/Dockerfile ${ROOT}/build
+    cp -r `ls ./ | grep -v build | xargs` build
     (
       cd ${ROOT}/build
       docker build ${BUILD_FLAGS:-} --build-arg version=${version} --build-arg commit=${commit} -t ${IMAGE_FILE} .
