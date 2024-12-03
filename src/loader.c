@@ -1087,6 +1087,92 @@ DONE:
   return ret;
 }
 
+int get_cgroupv2_data(const char *pid_cgroup, char *pod_uid, char *container_id,
+                       size_t size)
+{
+    int ret = 1;
+    char buffer[4096];
+    FILE *mountinfo_fd = NULL;
+    char *token = NULL, *last_ptr = NULL;
+    int container_found = 0, pod_found = 0;
+
+    mountinfo_fd = fopen(pid_cgroup, "r");
+    if (!mountinfo_fd)
+    {
+        LOGGER(VERBOSE,"not found file %s", pid_cgroup);
+        goto DONE;
+    }
+
+    // get container name by env is unsafety
+    char * container_name = getenv("CONTAINER_NAME");
+    strncpy(container_id,container_name,size);
+    container_found = 1;
+
+    /**
+     * if in cgroup v2,the mountinfo would display like this:
+     * /var/lib/kubelet/pods/xxx/containers/pytorch/xxxx
+     * for docker
+     * /var/lib/docker/containers/xxx/hostname
+     * for containerd
+     * /var/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/xxx/hostname
+     */
+    while (1)
+    {
+        buffer[0] = '\0';
+        if (unlikely(!fgets(buffer, sizeof(buffer), mountinfo_fd)))
+        {
+            if (feof(mountinfo_fd)){
+                break;
+            }
+            LOGGER(VERBOSE, "can't get line from %s，error: %s", pid_cgroup, strerror(errno));
+            goto DONE;
+        }
+
+        buffer[strlen(buffer) - 1] = '\0';
+
+        if ((token = strstr(buffer, "/etc-hosts ")))
+        {
+            /**
+             * pod uid
+             */
+            last_ptr = NULL;
+            token[0] = '\0';
+            token = buffer;
+            for (token = strtok_r(buffer, "/", &last_ptr); token;
+                 token = NULL, token = strtok_r(token, "/", &last_ptr))
+            {
+                if (!strcmp(token, "pods"))
+                {
+                    strncpy(pod_uid, last_ptr, size);
+                    pod_found = 1;
+                    break;
+                }
+            }
+        }
+        else if ((token = strstr(buffer, "/hostname ")))
+        {
+
+        }
+
+        if (container_found && pod_found){
+            break;
+        }
+
+    }
+
+int is_cgroup_v2(){
+    int fd = -1;
+
+    fd = open(CGROUP_V2_FILE, O_RDONLY);
+    if (fd == -1) {
+        return 0;
+    }
+
+    close(fd);
+
+    return 1;
+}
+
 static int get_path_by_cgroup(const char *pid_cgroup) {
   int ret = 1;
   char pod_uid[4096], container_id[4096];
@@ -1095,11 +1181,19 @@ static int get_path_by_cgroup(const char *pid_cgroup) {
     return 0;
   }
 
-  if (unlikely(get_cgroup_data(pid_cgroup, pod_uid, container_id,
-                               sizeof(container_id)))) {
-    LOGGER(4, "can't find container id from %s", pid_cgroup);
-    goto DONE;
-  }
+    if (is_cgroup_v2()) {
+        if (unlikely(get_cgroupv2_data("/proc/self/mountinfo", pod_uid, container_id,
+                                       sizeof(container_id)))) {
+            LOGGER(4, "can't find container id from /proc/self/mountinfo");
+            goto DONE;
+        }
+    } else {
+        if (unlikely(get_cgroup_data("/proc/self/cgroup", pod_uid, container_id,
+                                     sizeof(container_id)))) {
+            LOGGER(4, "can't find container id from /proc/self/cgroup");
+            goto DONE;
+        }
+    }
 
   snprintf(base_dir, sizeof(base_dir), "%s%s", VCUDA_CONFIG_PATH, container_id);
   snprintf(config_path, sizeof(config_path), "%s/%s", base_dir,

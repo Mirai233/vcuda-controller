@@ -75,6 +75,11 @@ extern "C" {
 #define DRIVER_VERSION_PROC_PATH "/proc/driver/nvidia/version"
 
 /**
+ * The file path for check version of cgroup
+*/
+#define CGROUP_V2_FILE "/sys/fs/cgroup/cgroup.controllers"
+
+/**
  * Driver regular expression pattern
  */
 #define DRIVER_VERSION_MATCH_PATTERN "([0-9]+)(\\.[0-9]+)+"
